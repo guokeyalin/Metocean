@@ -5,23 +5,26 @@
       <a-layout>
         <a-layout-header>Metocean Data Summary</a-layout-header>
         <a-layout-content>
-          <a-range-picker></a-range-picker>
           <a-select mode="tags"
                     class="ml-10"
                     :maxTagCount="maxTagCount"
-                    placeholder="Please select"
-                    :default-value="['a1', 'b2']"
-                    style="width: 200px">
-            <a-select-option v-for="i in 25"
-                             :key="(i + 9).toString(36) + i">
-              {{ (i + 9).toString(36) + i }}
+                    placeholder="Please select field"
+                    v-model="selectedField"
+                    style="width: 400px">
+            <a-select-option v-for="v in selectList"
+                             :value="v.abbr"
+                             :key="v.abbr">
+              {{ v.name }}
             </a-select-option>
           </a-select>
           <a-button class="ml-10"
                     type="primary"
                     @click="searchSubmit">
-            Search
+            Filter
           </a-button>
+          <a-switch class="mlr-10"
+                    v-model="syncTable"
+                    @change="searchSubmit" />Sync Table
           <a-row>
             <div id="data-chart"></div>
           </a-row>
@@ -40,7 +43,7 @@
 </template>
 
 <script>
-
+import { getFieldList, getFieldValue } from '@/api/data.js'
 import * as echarts from 'echarts'
 import $ from 'jquery'
 export default {
@@ -49,6 +52,7 @@ export default {
     return {
       isLoading: false,
       maxTagCount: 2,
+      chart: null,
       columns: [
         {
             title: 'Date & Time',
@@ -56,26 +60,14 @@ export default {
             key: 'date',
         }
       ],
+      selectList: [],
+      selectedField: [],
+      legend: [],
       data: [],
-      series: [
-        {
-           name: 'Test 01',
-           type: 'line',
-           data: [1,2,3,4,5]
-        },
-        {
-           name: 'Test 01',
-           type: 'line',
-           data: [5,6,7,8,9]
-        }
-      ],
-      xAxis: [
-        '2021-14',
-        '2021-14', 
-        '2021-14', 
-        '2021-14', 
-        '2021-14',
-      ]
+      series: [],
+      xAxis: [],
+      chartData: [],
+      syncTable: false
     }
   },
   mounted() {
@@ -84,31 +76,98 @@ export default {
   },
   methods: {
     getColumns() {
-      const list = [
-        {
-            title: 'KEY',
-            dataIndex: 'key',
-            key: 'key',
-        }
-      ]
-      list.forEach(e => {
-        this.columns.push(e)
+      this.isLoading = true
+      getFieldList().then(response => {
+          // console.log(response)
+          if (response.success) {
+              this.selectList = response.data
+              response.data.forEach( e=> {
+                 this.columns.push(
+                  {
+                    title: e.name + ' / ' + e.unit,
+                    dataIndex: e.abbr,
+                    key: e.abbr
+                  }
+                 )
+              });
+          } else {
+            this.$message.success(
+              response.message,
+              10,
+            );
+          }
       })
+      
     },
     getDataValue() {
-      this.initChart()
+      
+      getFieldValue().then(res => {
+        if (res.success) {
+          this.data = res.data.data
+          this.xAxis = res.data.key
+          this.legend = res.data.fields
+          this.chartData = res.data.chartData
+          res.data.fields.forEach( e=> {
+            this.series.push({
+              name: e,
+              data: res.data.chartData[e],
+              type: 'line'
+            })
+          })
+          this.initChart()
+          setTimeout(() => {
+            this.isLoading = false
+          }, 2000)
+        }
+      })
     },
     searchSubmit() {
       this.isLoading = true
-      setTimeout(() => {
-        this.isLoading = false
-      }, 2000)
+      if (this.selectedField.length) {
+        this.series = []
+        this.legend = []
+        this.columns = [
+           {
+            title: 'Date & Time',
+            dataIndex: 'date',
+            key: 'date',
+          }
+        ]
+        this.selectList.forEach( e=> {
+          if (this.selectedField.indexOf(e.abbr) !== -1) {
+            this.series.push({
+              name: e.name,
+              data: this.chartData[e.name],
+              type: 'line'
+            })
+            this.legend.push(e.name)
+            if (this.syncTable) {
+              this.columns.push({
+                title: e.name + ' / ' + e.unit,
+                dataIndex: e.abbr,
+                key: e.abbr
+              })
+            }
+          }
+          if (!this.syncTable) {
+            this.columns.push({
+                title: e.name + ' / ' + e.unit,
+                dataIndex: e.abbr,
+                key: e.abbr
+              })
+          }
+        })
+        this.initChart()
+      }
+      this.isLoading = false
     },
     resize () {
       this.chart.resize()
     },
     initChart() {
-      this.chart = echarts.init(document.getElementById('data-chart'), 'primary')
+      if (!this.chart) {
+        this.chart = echarts.init(document.getElementById('data-chart'), 'primary')
+      }
       // let that = this
       
       let option = {
@@ -120,9 +179,6 @@ export default {
               backgroundColor: '#6a7985'
             }
           },
-          title: {
-            text: 'Income of Germany and France since 1950'
-          },
           backgroundColor: '#ffffff',
           position: function (pos, params, dom, rect, size) {
             let obj = { top: pos[1] - 270 }
@@ -133,18 +189,19 @@ export default {
             }
             return obj
           },
-          padding: 0
+          padding: 10
         },
         legend: {
+          type: 'scroll',
           bottom: '0px',
           icon: 'pin',
-          data: []
+          data: this.legend
         },
         grid: {
           left: '3%',
           right: '4%',
           top: '10px',
-          bottom: '90px',
+          bottom: '100px',
           containLabel: true
         },
         xAxis: [
@@ -178,7 +235,8 @@ export default {
         ],
         series: this.series
       }
-      this.chart.setOption(option)
+     
+      this.chart.setOption(option, true)
 
       $(window).on('resize', this.resize)
       if (this.chartHeight) {
@@ -210,6 +268,10 @@ export default {
 
 .ml-10 {
   margin-left: 10px;
+}
+.mlr-10 {
+  margin-left: 10px;
+  margin-right: 10px;
 }
 .mt-10 {
   margin-top: 10px;

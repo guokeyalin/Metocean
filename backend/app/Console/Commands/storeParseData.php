@@ -66,13 +66,13 @@ class storeParseData extends Command
             if (strpos($temp, ' : ')) {
               $fieldList = explode(' : ', $temp);
               $dataFieldList[] = [
-                'name' => $fieldList[1],
+                'name' =>trim($fieldList[1]),
                 'abbr' => $fieldList[0]
               ];
             }
           }
         }
-        Log::debug($header);
+        // Log::debug($header);
         foreach ($dataFieldList as $item) {
           DataField::updateOrCreate(
             [
@@ -86,16 +86,18 @@ class storeParseData extends Command
           );
         }
         
-        Log::debug($header);
+        // Log::debug($header);
         foreach ($header as $index => $h) {
           if ($index > 0) {
             $result = [];
             preg_match_all('/\[(.*)\]/', $h, $result);
             if (count($result)) {
+              
               $field = DataField::firstWhere('abbr', str_replace($result[0], '', $h));
               if ($field) {
+                DataField::where('id', $field['id'])->update(['unit' => $result[1][0]]);
                 foreach ($dataValueList as $item) {
-                  Log::debug($item);
+                  // Log::debug($item);
                   $date = explode('-', $item[0]);
                   $hour = explode(':', $item[1]);
                   DataValue::updateOrCreate(
